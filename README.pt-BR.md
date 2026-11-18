@@ -43,7 +43,7 @@ Não existe um protocolo universal para dongles 2.4 GHz — cada chip fala de um
 
 ### Seu dispositivo não aparece?
 
-Na pasta do exe, rode `.\BatteryTray.exe --diagnose > diagnose.txt` (o PowerShell exige o `.\`) com o dispositivo conectado e abra uma issue com o arquivo, o modelo exato e, se houver, o link do software oficial do fabricante.
+Com o dispositivo conectado, rode `.\BatteryTray.exe --diagnose` na pasta do exe (o PowerShell exige o `.\`). Ele salva `diagnose.txt` na Área de Trabalho e abre o arquivo. Abra uma issue com o arquivo, o modelo exato e, se houver, o link do software oficial do fabricante.
 
 ## Como foi feito
 

@@ -49,8 +49,14 @@ static class Program
                     Console.WriteLine($"{DeviceKinds.Label(r.Kind)}: {r.Level}%{(r.Charging ? " (carregando)" : "")}  {r.Name}  [{r.Id}]");
                 return;
             case ["--diagnose"]:
-                StartConsole();
-                Task.Run(Diagnose).Wait();
+                // Always a file on the Desktop: PowerShell 5.1 "> file" from a GUI exe comes out empty, and IsOutputRedirected cannot tell that case apart.
+                var report = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "diagnose.txt");
+                using (var file = new StreamWriter(report, false, System.Text.Encoding.UTF8))
+                {
+                    Console.SetOut(file);
+                    Task.Run(Diagnose).Wait();
+                }
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(report) { UseShellExecute = true });
                 return;
             case ["--preview", var dir]:
                 SavePreview(dir);
