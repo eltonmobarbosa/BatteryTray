@@ -6,8 +6,9 @@ on:
     tags: ['v*']
   pull_request:
 
+# Read-only by default; only the release job, which runs on tags, gets write access.
 permissions:
-  contents: write # only used by the release step, which runs on tags
+  contents: read
 
 jobs:
   build:
@@ -23,8 +24,10 @@ jobs:
         shell: pwsh
         run: |
           $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          # No EnableCompressionInSingleFile: a compressed exe unpacks every assembly into RAM (~60 MB vs ~13 MB).
+          # The zip below compresses it for download instead (~50 MB).
           dotnet publish -c Release -r win-x64 --self-contained `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:Version=$version -o publish
 
       # No devices on the runner: this runs every reader (they must not crash) and the protocol self-checks.
@@ -32,18 +35,44 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process publish\BatteryTray.exe -ArgumentList '--list' -RedirectStandardOutput out.txt -RedirectStandardError err.txt -PassThru -NoNewWindow
+          $null = $p.Handle # keep the handle open so ExitCode is still readable after the process exits
           if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'BatteryTray --list did not finish in 120 s' }
           Get-Content out.txt, err.txt
+          if ($p.ExitCode -ne 0) { throw "BatteryTray --list exited with code $($p.ExitCode)" }
+          if ((Get-Item err.txt).Length -gt 0) { throw 'BatteryTray --list wrote to stderr' }
           if (Select-String -Path out.txt -Pattern 'SELF-CHECK FAILED') { throw 'self-check failed' }
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path publish/BatteryTray.exe -DestinationPath BatteryTray.zip -CompressionLevel Optimal
 
       - uses: actions/upload-artifact@v7
         with:
           name: BatteryTray
-          path: publish/BatteryTray.exe
+          path: BatteryTray.zip
 
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: BatteryTray
+
+      # Re-running a tag's workflow replaces the exe instead of failing on "release already exists".
       - name: Release
-        if: github.ref_type == 'tag'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME publish/BatteryTray.exe --title $env:GITHUB_REF_NAME --generate-notes
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME BatteryTray.zip --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME BatteryTray.zip --title $env:GITHUB_REF_NAME --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'release failed' }

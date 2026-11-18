@@ -31,6 +31,8 @@ static class Program
     static ContextMenuStrip Menu = null!;
     static DateTime updated;
     static bool busy, pending;
+    // Opened by hand (not by Windows at sign-in): confirm with a notification that it is running and where to find it.
+    static bool announce;
 
     [STAThread]
     static void Main(string[] args)
@@ -57,7 +59,9 @@ static class Program
         using var mutex = new Mutex(true, @"Local\BatteryTray", out var firstInstance);
         if (!firstInstance) return;
 
-        Log.Write($"Iniciado (versão {Application.ProductVersion})");
+        announce = args is not ["--autostart"];
+        Log.Write($"Iniciado (versão {Application.ProductVersion}){(announce ? "" : " com o Windows")}");
+        if (AutostartEnabled()) SetAutostart(true); // rewrites entries from older versions that lacked --autostart
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => Log.Write($"Erro: {e.Exception}");
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Write($"Erro fatal: {e.ExceptionObject}");
@@ -198,6 +202,12 @@ static class Program
                 if (Devices.Count == 0) Devices[NoneId] = new(NoneId, "Nenhum dispositivo com bateria", DeviceKind.Other, -1);
                 updated = DateTime.Now;
                 Redraw();
+                // Before the low-battery warning, so a warning on the same icon replaces it instead of being hidden by it.
+                if (announce)
+                {
+                    announce = false;
+                    Announce();
+                }
                 WarnLowBattery();
             } while (pending);
         }
@@ -205,6 +215,15 @@ static class Program
         {
             busy = false;
         }
+    }
+
+    static void Announce()
+    {
+        var found = Devices.Values.Where(d => d.Id != NoneId).OrderBy(d => d.Kind).ToList();
+        var summary = found.Count == 0
+            ? "Nenhum dispositivo com bateria encontrado ainda. Conecte um e ele aparece aqui."
+            : string.Join(" · ", found.Select(d => $"{DeviceKinds.Label(d.Kind)} {d.Level}%"));
+        Icons.Values.First().Inform("BatteryTray está funcionando", $"{summary}\nClique no ícone perto do relógio para ver os detalhes.");
     }
 
     // One notification each time a device drops to the threshold; re-armed once it charges or climbs back up.
@@ -306,13 +325,13 @@ static class Program
     static bool AutostartEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return key?.GetValue(RunValue) is string cmd && cmd.Trim('"').Equals(ExePath, StringComparison.OrdinalIgnoreCase);
+        return key?.GetValue(RunValue) is string cmd && cmd.Trim().StartsWith($"\"{ExePath}\"", StringComparison.OrdinalIgnoreCase);
     }
 
     static void SetAutostart(bool enabled)
     {
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
-        if (enabled) key.SetValue(RunValue, $"\"{ExePath}\"");
+        if (enabled) key.SetValue(RunValue, $"\"{ExePath}\" --autostart");
         else key.DeleteValue(RunValue, throwOnMissingValue: false);
     }
 

@@ -12,7 +12,7 @@ sealed class TrayIcon : IDisposable
     const int WM_TRAY = 0x8001, WM_LBUTTONUP = 0x0202, WM_RBUTTONUP = 0x0205;
     const int NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2;
     const int NIF_MESSAGE = 0x01, NIF_ICON = 0x02, NIF_TIP = 0x04, NIF_INFO = 0x10, NIF_GUID = 0x20;
-    const int NIIF_WARNING = 0x02;
+    const int NIIF_INFO = 0x01, NIIF_WARNING = 0x02;
 
     static readonly List<TrayIcon> All = new();
     static MessageWindow? window;
@@ -41,7 +41,8 @@ sealed class TrayIcon : IDisposable
     }
 
     // Shown by Windows 10/11 as a toast notification coming from this icon.
-    public void Warn(string title, string message) => Send(NIM_MODIFY, title, message);
+    public void Warn(string title, string message) => Send(NIM_MODIFY, title, message, NIIF_WARNING);
+    public void Inform(string title, string message) => Send(NIM_MODIFY, title, message, NIIF_INFO);
 
     public void Dispose()
     {
@@ -51,7 +52,7 @@ sealed class TrayIcon : IDisposable
         All.Remove(this);
     }
 
-    bool Send(int message, string? infoTitle = null, string? info = null)
+    bool Send(int message, string? infoTitle = null, string? info = null, int infoIcon = 0)
     {
         var data = new NOTIFYICONDATAW
         {
@@ -63,7 +64,7 @@ sealed class TrayIcon : IDisposable
             szTip = text,
             szInfo = info ?? "",
             szInfoTitle = infoTitle ?? "",
-            dwInfoFlags = info is null ? 0 : NIIF_WARNING,
+            dwInfoFlags = infoIcon,
             guidItem = id,
         };
         return Shell_NotifyIconW(message, ref data);

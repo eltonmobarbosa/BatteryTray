@@ -12,7 +12,9 @@ Cada dispositivo ganha o próprio ícone: o desenho do tipo (mouse, teclado, hea
 
 ## Download
 
-Baixe o `BatteryTray.exe` da [última versão](https://github.com/eltonmobarbosa/BatteryTray/releases/latest). Não precisa instalar nada: coloque numa pasta fixa e abra. Cada versão é compilada pelo GitHub Actions a partir do código deste repositório.
+Baixe o `BatteryTray.zip` da [última versão](https://github.com/eltonmobarbosa/BatteryTray/releases/latest), extraia o `BatteryTray.exe` numa pasta fixa e abra. Não precisa instalar nada. Ao abrir, uma notificação confirma que está funcionando e mostra o que foi encontrado. Cada versão é compilada pelo GitHub Actions a partir do código deste repositório.
+
+Usa cerca de 13 MB de RAM.
 
 ## Como a bateria é lida
 
@@ -45,10 +47,10 @@ dotnet run -- --preview a.png # folha com todos os ícones, para conferir o desi
 ### Gerar o executável
 
 ```powershell
-dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish
+dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
-Gera `publish\BatteryTray.exe` (~55 MB), que roda sem precisar instalar o .NET. Coloque-o numa pasta fixa antes de marcar "Iniciar com o Windows": o atalho de inicialização aponta para esse caminho.
+Gera `publish\BatteryTray.exe` (~135 MB; ~50 MB em zip), que roda sem precisar instalar o .NET. Não use `EnableCompressionInSingleFile`: o exe fica menor, mas descompacta tudo na RAM e o app passa de ~13 MB para ~60 MB. Coloque-o numa pasta fixa antes de marcar "Iniciar com o Windows": o atalho de inicialização aponta para esse caminho.
 
 ### Manter o ícone visível
 
