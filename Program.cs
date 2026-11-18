@@ -1,5 +1,7 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Drawing.Text;
 using System.Runtime.InteropServices;
 using HidSharp;
 using Microsoft.Win32;
@@ -260,34 +262,63 @@ static class Program
         TrayIcon.PromoteOnWindows11();
     }
 
-    // Device glyph on the left, slim vertical battery on the right that fills from the bottom.
+    // Device glyph with a badge in the bottom-right corner showing the percentage, colored by level.
+    // Charging shows a bolt and 100% a check mark: three digits do not fit at 16 px.
     static Bitmap DrawIcon(int size, DeviceKind kind, int level, bool charging, bool light)
     {
         var fg = Theme.Foreground(light);
-        var t = Math.Max(1, size / 16); // stroke: 1px at 16, 2px at 32
-        var bodyW = 5 * t;
-        var body = new Rectangle(size - bodyW, 2 * t, bodyW, size - 2 * t);
-
         var bmp = new Bitmap(size, size);
         using var g = Graphics.FromImage(bmp);
-        DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, t, size - bodyW - t, size - 2 * t), level < 0 ? Color.FromArgb(120, fg) : fg);
-
-        using var outline = new SolidBrush(Color.FromArgb(level < 0 ? 120 : 210, fg));
-        g.FillRectangle(outline, body.X, body.Y, body.Width, t);                 // top
-        g.FillRectangle(outline, body.X, body.Bottom - t, body.Width, t);        // bottom
-        g.FillRectangle(outline, body.X, body.Y, t, body.Height);                // left
-        g.FillRectangle(outline, body.Right - t, body.Y, t, body.Height);        // right
-        g.FillRectangle(outline, body.X + t, body.Y - t, body.Width - 2 * t, t); // terminal
-
-        var inner = Rectangle.Inflate(body, -t, -t);
-        if (level > 0)
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        if (level < 0)
         {
-            var h = Math.Max(1, (int)Math.Round(inner.Height * level / 100.0));
-            var color = charging ? Theme.Accent : level <= Theme.LowThreshold ? Theme.Low(light) : fg;
-            using var fill = new SolidBrush(color);
-            g.FillRectangle(fill, inner.X, inner.Bottom - h, inner.Width, h);
+            DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, 0, size, size), Color.FromArgb(120, fg));
+            return bmp;
+        }
+
+        DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, 0, size * .78f, size * .72f), fg);
+
+        var symbol = charging || level >= 100;
+        float bh = size * .52f, bw = symbol ? bh : size * .80f;
+        var badge = new RectangleF(size - bw, size - bh, bw, bh);
+        var color = Theme.Level(level, charging, light);
+        var ink = Theme.InkOn(color);
+        using (var pill = Pill(badge))
+        using (var fill = new SolidBrush(color))
+            g.FillPath(fill, pill);
+
+        if (charging)
+        {
+            var r = RectangleF.Inflate(badge, -bh * .18f, -bh * .12f);
+            PointF P(float x, float y) => new(r.X + r.Width * x, r.Y + r.Height * y);
+            using var bolt = new SolidBrush(ink);
+            g.FillPolygon(bolt, [P(.62f, 0), P(.12f, .56f), P(.46f, .56f), P(.34f, 1), P(.88f, .42f), P(.54f, .42f)]);
+        }
+        else if (level >= 100)
+        {
+            using var check = new Pen(ink, Math.Max(1.2f, bh / 6)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            g.DrawLines(check, new PointF[] { new(badge.X + bh * .26f, badge.Y + bh * .52f), new(badge.X + bh * .44f, badge.Y + bh * .70f), new(badge.X + bh * .76f, badge.Y + bh * .32f) });
+        }
+        else
+        {
+            // Pixel-aligned digits stay sharp at tray sizes; anti-aliased ones blur into the badge.
+            g.TextRenderingHint = size < 20 ? TextRenderingHint.SingleBitPerPixelGridFit : TextRenderingHint.AntiAliasGridFit;
+            using var font = new Font("Segoe UI", bh * .86f, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var format = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            using var text = new SolidBrush(ink);
+            g.DrawString(level.ToString(), font, text, new RectangleF(badge.X, badge.Y + bh * .04f, badge.Width, badge.Height), format);
         }
         return bmp;
+    }
+
+    static GraphicsPath Pill(RectangleF r)
+    {
+        var path = new GraphicsPath();
+        var d = Math.Min(r.Width, r.Height);
+        path.AddArc(r.X, r.Y, d, d, 90, 180);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 180);
+        path.CloseFigure();
+        return path;
     }
 
     // Renders every kind at common tray sizes on dark and light backgrounds, for checking the icon design.
@@ -296,7 +327,7 @@ static class Program
         const int cell = 72;
         var kinds = Enum.GetValues<DeviceKind>();
         int[] sizes = [16, 20, 24, 32];
-        (int Level, bool Charging)[] states = [(85, false), (30, false), (12, false), (60, true), (-1, false)];
+        (int Level, bool Charging)[] states = [(100, false), (85, false), (30, false), (12, false), (60, true), (-1, false)];
         using var sheet = new Bitmap(kinds.Length * states.Length * cell, sizes.Length * 2 * cell);
         using var g = Graphics.FromImage(sheet);
         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;

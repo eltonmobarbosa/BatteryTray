@@ -13,7 +13,6 @@ sealed class Flyout : Form
     readonly List<Reading> devices;
     readonly DateTime updated;
     readonly bool light = Theme.Light;
-    readonly Color accent = Theme.Accent;
     readonly float k;
     readonly int visibleRows;
     int scroll; // pixels the device list is scrolled down
@@ -149,7 +148,7 @@ sealed class Flyout : Form
             var bar = new RectangleF(textX, top + S(50), textW, S(4));
             FillRounded(g, bar, Track);
             if (d.Level > 0)
-                FillRounded(g, bar with { Width = Math.Max(bar.Height, bar.Width * d.Level / 100f) }, low ? Theme.Low(light) : accent);
+                FillRounded(g, bar with { Width = Math.Max(bar.Height, bar.Width * d.Level / 100f) }, Theme.Level(d.Level, d.Charging, light));
 
             top += S(Row96);
         }
