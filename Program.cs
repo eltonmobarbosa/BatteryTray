@@ -262,30 +262,54 @@ static class Program
         TrayIcon.PromoteOnWindows11();
     }
 
-    // Device glyph with a badge in the bottom-right corner showing the percentage, colored by level.
-    // Charging shows a bolt and 100% a check mark: three digits do not fit at 16 px.
+    // 4x6 pixel digits, row by row. At tray size (16 px at 100%) vector text either blurs or needs a badge so big it hides
+    // the device; pixel digits stay sharp in a small badge, so the glyph can use nearly the whole square.
+    static readonly string[] Digits =
+    [
+        "011010011001100110010110", "001001100010001000100111", "011010010010010010001111", "111000010110000100011110",
+        "001001101010111100100010", "111110001110000100011110", "011010001110100110010110", "111100010010010001000100",
+        "011010010110100110010110", "011010011001011100010110",
+    ];
+
+    // Windows' own tray pattern: glyph fills the square, a status badge overlaps the bottom-right corner with a
+    // transparent gap around it. The badge shows the percentage colored by level; charging shows a bolt, 100% a check
+    // (three digits do not fit at 16 px).
     static Bitmap DrawIcon(int size, DeviceKind kind, int level, bool charging, bool light)
     {
         var fg = Theme.Foreground(light);
         var bmp = new Bitmap(size, size);
         using var g = Graphics.FromImage(bmp);
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        var u = Math.Max(1, size / 16); // pixel unit: 1 at 16-31 px, 2 at 32 px
         if (level < 0)
         {
-            DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, 0, size, size), Color.FromArgb(120, fg));
+            DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, 0, size - u, size - u), Color.FromArgb(120, fg));
             return bmp;
         }
 
-        DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, 0, size * .78f, size * .72f), fg);
+        DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, 0, size - u, size - u), fg);
 
+        var text = level.ToString();
         var symbol = charging || level >= 100;
-        float bh = size * .52f, bw = symbol ? bh : size * .80f;
-        var badge = new RectangleF(size - bw, size - bh, bw, bh);
+        int bh = 8 * u, bw = symbol ? bh : (text.Length * 5 + 1) * u; // digits 4 wide + 1 gap, 1 px padding
+        var badge = new Rectangle(size - bw, size - bh, bw, bh);
+        using (var clear = new SolidBrush(Color.Transparent))
+        {
+            g.CompositingMode = CompositingMode.SourceCopy;
+            g.FillRectangle(clear, badge.X - u, badge.Y - u, badge.Width + u, badge.Height + u);
+            g.CompositingMode = CompositingMode.SourceOver;
+        }
+
         var color = Theme.Level(level, charging, light);
         var ink = Theme.InkOn(color);
-        using (var pill = Pill(badge))
+        g.SmoothingMode = SmoothingMode.None;
         using (var fill = new SolidBrush(color))
-            g.FillPath(fill, pill);
+        {
+            // Rectangle with the four corner pixels cut off.
+            g.FillRectangle(fill, badge.X + u, badge.Y, badge.Width - 2 * u, badge.Height);
+            g.FillRectangle(fill, badge.X, badge.Y + u, badge.Width, badge.Height - 2 * u);
+        }
+        g.SmoothingMode = SmoothingMode.AntiAlias;
 
         if (charging)
         {
@@ -296,29 +320,23 @@ static class Program
         }
         else if (level >= 100)
         {
-            using var check = new Pen(ink, Math.Max(1.2f, bh / 6)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            using var check = new Pen(ink, Math.Max(1.2f, bh / 6f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
             g.DrawLines(check, new PointF[] { new(badge.X + bh * .26f, badge.Y + bh * .52f), new(badge.X + bh * .44f, badge.Y + bh * .70f), new(badge.X + bh * .76f, badge.Y + bh * .32f) });
         }
         else
         {
-            // Pixel-aligned digits stay sharp at tray sizes; anti-aliased ones blur into the badge.
-            g.TextRenderingHint = size < 20 ? TextRenderingHint.SingleBitPerPixelGridFit : TextRenderingHint.AntiAliasGridFit;
-            using var font = new Font("Segoe UI", bh * .86f, FontStyle.Bold, GraphicsUnit.Pixel);
-            using var format = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            using var text = new SolidBrush(ink);
-            g.DrawString(level.ToString(), font, text, new RectangleF(badge.X, badge.Y + bh * .04f, badge.Width, badge.Height), format);
+            g.SmoothingMode = SmoothingMode.None;
+            using var pixel = new SolidBrush(ink);
+            for (int i = 0; i < text.Length; i++)
+            {
+                var pattern = Digits[text[i] - '0'];
+                int x0 = badge.X + u + i * 5 * u, y0 = badge.Y + u;
+                for (int row = 0; row < 6; row++)
+                    for (int col = 0; col < 4; col++)
+                        if (pattern[row * 4 + col] == '1') g.FillRectangle(pixel, x0 + col * u, y0 + row * u, u, u);
+            }
         }
         return bmp;
-    }
-
-    static GraphicsPath Pill(RectangleF r)
-    {
-        var path = new GraphicsPath();
-        var d = Math.Min(r.Width, r.Height);
-        path.AddArc(r.X, r.Y, d, d, 90, 180);
-        path.AddArc(r.Right - d, r.Y, d, d, 270, 180);
-        path.CloseFigure();
-        return path;
     }
 
     // Renders every kind at common tray sizes on dark and light backgrounds, for checking the icon design.
