@@ -4,10 +4,15 @@ Mostra na área de notificação do Windows a bateria de mouses, teclados, heads
 
 Cada dispositivo ganha o próprio ícone: o desenho do tipo (mouse, teclado, headset, controle) com uma bateria vertical que enche de baixo para cima. A bateria fica vermelha em 20% ou menos e na cor de destaque do Windows quando está carregando.
 
-- **Clique esquerdo:** painel com todos os dispositivos, porcentagem e estado de carga.
-- **Clique direito:** Atualizar, Iniciar com o Windows, Sair.
+- **Clique esquerdo:** painel com todos os dispositivos, porcentagem e estado de carga (rola com a roda do mouse quando não cabem na tela).
+- **Clique direito:** Atualizar, Iniciar com o Windows, Abrir log, Sair.
 - **Aviso de bateria fraca:** notificação do Windows quando um dispositivo chega a 20%.
+- **Na hora:** conectar, desconectar ou parear um dispositivo atualiza em ~2 s; a bateria em si é relida a cada minuto.
 - Segue o tema claro/escuro da barra de tarefas e a cor de destaque.
+
+## Download
+
+Baixe o `BatteryTray.exe` da [última versão](https://github.com/eltonmobarbosa/BatteryTray/releases/latest). Não precisa instalar nada: coloque numa pasta fixa e abra. Cada versão é compilada pelo GitHub Actions a partir do código deste repositório.
 
 ## Como a bateria é lida
 
@@ -15,11 +20,11 @@ O app não depende de marca. Ele tenta, em ordem, várias formas de leitura; a m
 
 | Leitor | Cobre | Testado com aparelho |
 |---|---|---|
-| HID padrão | Qualquer marca que publique a bateria pelo padrão HID (Battery Strength / Absolute State Of Charge) | Não |
+| HID padrão | Qualquer marca que publique a bateria pelo padrão HID (Battery Strength / Absolute State Of Charge), em relatório de feature ou de entrada | Não |
 | Bluetooth | Qualquer dispositivo cuja bateria o Windows já lê (BLE Battery Service, headsets HFP); só os conectados | Não |
 | Controles | Controles sem fio via Windows.Gaming.Input (Xbox e compatíveis) | Não |
 | Compx | Chip Compx (VID 25A7), usado por Redragon e outras marcas, no dongle e no cabo | Sim (Redragon M711-PRO) |
-| Logitech | HID++ 2.0: receptores Unifying, Lightspeed, Bolt e dispositivos com fio | Não |
+| Logitech | HID++ 2.0 (Unifying, Lightspeed, Bolt e com fio) e HID++ 1.0 (Unifying antigos) | Não |
 | Razer | Protocolo de 90 bytes documentado pelo OpenRazer | Não |
 | Fantech | Kanata WG9RD, protocolo documentado em [peripheral-battery](https://github.com/MarcoVilera/peripheral-battery) | Não |
 | HeadsetControl | Headsets SteelSeries, Corsair, HyperX, Logitech G e outros, via [HeadsetControl](https://github.com/Sapd/HeadsetControl) (coloque `headsetcontrol.exe` ao lado do app ou no PATH) | Não |
@@ -52,9 +57,24 @@ Gera `publish\BatteryTray.exe` (~55 MB), que roda sem precisar instalar o .NET. 
 
 Se o `.exe` mudar de pasta, o Windows trata os ícones como novos e é preciso arrastar de novo.
 
-### Microsoft Defender
+### Log
 
-"Iniciar com o Windows" grava em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Em executáveis sem assinatura digital isso às vezes dispara um falso positivo heurístico do Defender. O código completo está neste repositório; a solução definitiva é assinar o executável.
+Erros, dispositivos que entram/saem e avisos de bateria ficam em `%LOCALAPPDATA%\BatteryTray\BatteryTray.log` (no máximo ~512 KB; o anterior vira `.log.old`). Clique direito → **Abrir log**.
+
+### Microsoft Defender e SmartScreen
+
+O executável ainda não tem assinatura digital, então o Windows pode mostrar "Editor desconhecido" ao abrir, e "Iniciar com o Windows" (que grava em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) às vezes dispara um falso positivo heurístico do Defender. O código completo está neste repositório e cada `.exe` dos Releases é compilado a partir dele pelo GitHub Actions.
+
+A solução definitiva é assinar o executável; projetos open source podem pedir certificado gratuito à [SignPath Foundation](https://signpath.org/).
+
+### Publicar uma versão
+
+```powershell
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+O workflow `.github/workflows/build.yml` compila, roda os self-checks e cria o Release com o `.exe`.
 
 ## Pedir suporte a um dispositivo
 

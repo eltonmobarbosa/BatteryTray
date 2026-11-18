@@ -22,8 +22,7 @@ static class Program
         ("Logitech", Logitech.Read),
         ("Razer", Razer.Read),
         ("Fantech", Fantech.Read),
-        ("HeadsetControl", HeadsetControl.Read),
-    ];
+        ("HeadsetControl", HeadsetControl.Read),    ];
 
     static readonly Dictionary<string, TrayIcon> Icons = new();
     static readonly Dictionary<string, Reading> Devices = new();
@@ -31,7 +30,7 @@ static class Program
     // Created only in tray mode: a WinForms control on the main thread makes WinRT calls in --list wait on that blocked thread.
     static ContextMenuStrip Menu = null!;
     static DateTime updated;
-    static bool busy;
+    static bool busy, pending;
 
     [STAThread]
     static void Main(string[] args)
@@ -42,7 +41,7 @@ static class Program
                 StartConsole();
                 SelfCheck();
                 // Off the STA thread: blocking on WinRT async there deadlocks without a message loop.
-                foreach (var r in Task.Run(() => Collect(Console.WriteLine)).Result.Values)
+                foreach (var r in Task.Run(() => Collect(Console.WriteLine, timings: true)).Result.Values)
                     Console.WriteLine($"{DeviceKinds.Label(r.Kind)}: {r.Level}%{(r.Charging ? " (carregando)" : "")}  {r.Name}  [{r.Id}]");
                 return;
             case ["--diagnose"]:
@@ -58,6 +57,11 @@ static class Program
         using var mutex = new Mutex(true, @"Local\BatteryTray", out var firstInstance);
         if (!firstInstance) return;
 
+        Log.Write($"Iniciado (versão {Application.ProductVersion})");
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) => Log.Write($"Erro: {e.Exception}");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Write($"Erro fatal: {e.ExceptionObject}");
+
         ApplicationConfiguration.Initialize();
         var ui = new WindowsFormsSynchronizationContext();
         SynchronizationContext.SetSynchronizationContext(ui);
@@ -69,6 +73,11 @@ static class Program
         autostart.CheckedChanged += (_, _) => SetAutostart(autostart.Checked);
         Menu.Items.Add("Atualizar", null, async (_, _) => await Refresh());
         Menu.Items.Add(autostart);
+        Menu.Items.Add("Abrir log", null, (_, _) =>
+        {
+            Log.Write("Log aberto pelo menu");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Log.FilePath) { UseShellExecute = true });
+        });
         Menu.Items.Add(new ToolStripSeparator());
         Menu.Items.Add("Sair", null, (_, _) =>
         {
@@ -79,6 +88,15 @@ static class Program
         // Redraw with the right colors when the user switches light/dark taskbar or accent.
         SystemEvents.UserPreferenceChanged += (_, _) => ui.Post(_ => Redraw(), null);
 
+        // Plugging, unplugging or pairing fires a burst of device events; refresh once it settles instead of waiting for the timer.
+        var settle = new System.Windows.Forms.Timer { Interval = 1500 };
+        settle.Tick += async (_, _) => { settle.Stop(); await Refresh(); };
+        void DevicesChanged() => ui.Post(_ => { settle.Stop(); settle.Start(); }, null);
+        DeviceList.Local.Changed += (_, _) => DevicesChanged();
+        Windows.Gaming.Input.RawGameController.RawGameControllerAdded += (_, _) => DevicesChanged();
+        Windows.Gaming.Input.RawGameController.RawGameControllerRemoved += (_, _) => DevicesChanged();
+
+        // Still polled: battery levels change without any device event.
         var timer = new System.Windows.Forms.Timer { Interval = 60_000 };
         timer.Tick += async (_, _) => await Refresh();
         timer.Start();
@@ -109,7 +127,7 @@ static class Program
         if (!ok) Console.WriteLine($"SELF-CHECK FAILED: {what}");
     }
 
-    static Dictionary<string, Reading> Collect(Action<string> log)
+    static Dictionary<string, Reading> Collect(Action<string> log, bool timings)
     {
         var found = new Dictionary<string, Reading>();
         foreach (var provider in Providers)
@@ -118,7 +136,7 @@ static class Program
             try
             {
                 foreach (var r in provider.Read()) found[r.Id] = r with { Level = Math.Clamp(r.Level, 0, 100) };
-                log($"[{provider.Name}] {watch.ElapsedMilliseconds} ms");
+                if (timings) log($"[{provider.Name}] {watch.ElapsedMilliseconds} ms");
             }
             catch (Exception e)
             {
@@ -149,29 +167,39 @@ static class Program
 
         Console.WriteLine();
         Console.WriteLine("== Respostas Compx (bruto)");
-        foreach (var (group, cmd, reply) in Compx.Dongles())
+        foreach (var (iface, cmd, reply) in Compx.Dongles())
             foreach (byte command in new byte[] { 0x03, Compx.GetBattery })
-                Console.WriteLine($"25A7:{group.Key:X4} cmd {command:X2}: {(Compx.Query(cmd, reply, command) is { } r ? Convert.ToHexString(r) : "sem resposta")}");
+                Console.WriteLine($"25A7:{iface} cmd {command:X2}: {(Compx.Query(cmd, reply, command) is { } r ? Convert.ToHexString(r) : "sem resposta")}");
 
         Console.WriteLine();
         Console.WriteLine("== Leituras");
-        foreach (var r in Collect(Console.WriteLine).Values)
+        foreach (var r in Collect(Console.WriteLine, timings: true).Values)
             Console.WriteLine($"{DeviceKinds.Label(r.Kind)}: {r.Level}%{(r.Charging ? " (carregando)" : "")}  {r.Name}  [{r.Id}]");
     }
 
     static async Task Refresh()
     {
-        if (busy) return;
+        // A change that arrives mid-refresh may not be in that reading; run once more instead of dropping it.
+        if (busy) { pending = true; return; }
         busy = true;
         try
         {
-            var found = await Task.Run(() => Collect(msg => System.Diagnostics.Trace.WriteLine(msg)));
-            Devices.Clear();
-            foreach (var (id, r) in found) Devices[id] = r;
-            if (Devices.Count == 0) Devices[NoneId] = new(NoneId, "Nenhum dispositivo com bateria", DeviceKind.Other, -1);
-            updated = DateTime.Now;
-            Redraw();
-            WarnLowBattery();
+            do
+            {
+                pending = false;
+                var found = await Task.Run(() => Collect(Log.Write, timings: false));
+                foreach (var gone in Devices.Values.Where(d => d.Id != NoneId && !found.ContainsKey(d.Id)))
+                    Log.Write($"Saiu: {gone.Name} [{gone.Id}]");
+                foreach (var added in found.Values.Where(d => !Devices.ContainsKey(d.Id)))
+                    Log.Write($"Entrou: {added.Name} [{added.Id}] {added.Level}%{(added.Charging ? " carregando" : "")}");
+
+                Devices.Clear();
+                foreach (var (id, r) in found) Devices[id] = r;
+                if (Devices.Count == 0) Devices[NoneId] = new(NoneId, "Nenhum dispositivo com bateria", DeviceKind.Other, -1);
+                updated = DateTime.Now;
+                Redraw();
+                WarnLowBattery();
+            } while (pending);
         }
         finally
         {
@@ -186,7 +214,10 @@ static class Program
         {
             if (r.Charging || r.Level > Theme.LowThreshold + 5) Warned.Remove(r.Id);
             else if (r.Level <= Theme.LowThreshold && Warned.Add(r.Id))
+            {
+                Log.Write($"Aviso de bateria fraca: {r.Name} {r.Level}%");
                 Icons[r.Id].Warn($"Bateria fraca: {DeviceKinds.Label(r.Kind)} ({r.Level}%)", $"{r.Name} está com {r.Level}% de bateria. Hora de carregar.");
+            }
         }
     }
 

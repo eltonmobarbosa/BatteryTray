@@ -3,7 +3,8 @@ using HidSharp;
 
 namespace BatteryTray;
 
-// Logitech HID++ 2.0 over the long report (0x11, 20 bytes): Unifying, Lightspeed, Bolt receivers and wired devices.
+// Logitech HID++: 2.0 features over the long report (0x11, 20 bytes) for Unifying, Lightspeed, Bolt receivers and
+// wired devices; 1.0 registers over the short report (0x10, 7 bytes) for older Unifying devices.
 static class Logitech
 {
     const int Vid = 0x046D;
@@ -12,29 +13,82 @@ static class Logitech
     public static IEnumerable<Reading> Read()
     {
         var result = new List<Reading>();
-        foreach (var dev in DeviceList.Local.GetHidDevices(Vid))
+        foreach (var iface in DeviceList.Local.GetHidDevices(Vid).GroupBy(HidPaths.InterfaceKey))
         {
-            if (dev.GetMaxOutputReportLength() != 20 || dev.GetMaxInputReportLength() != 20) continue;
-            if (!dev.TryOpen(out var s)) continue;
+            var longDev = iface.FirstOrDefault(d => d.GetMaxOutputReportLength() == 20 && d.GetMaxInputReportLength() == 20);
+            var shortDev = iface.FirstOrDefault(d => d.GetMaxOutputReportLength() == 7 && d.GetMaxInputReportLength() == 7);
+            if (longDev is null || !longDev.TryOpen(out var s)) continue;
+            HidStream? sh = shortDev is not null && shortDev.TryOpen(out var opened) ? opened : null;
             using (s)
+            using (sh)
             {
                 s.ReadTimeout = 300;
+                if (sh is not null) sh.ReadTimeout = 300;
                 // 0xFF = the device itself (wired/direct); 1..6 = receiver slots.
-                // shortcut: old HID++ 1.0 devices (pre-2013 Unifying) answer nothing here and are skipped.
                 foreach (byte slot in new byte[] { 0xFF, 1, 2, 3, 4, 5, 6 })
                 {
-                    if (Battery(s, slot) is not var (level, charging)) continue;
-                    var (name, kind) = Info(s, slot);
-                    result.Add(new($"usb:{Vid:X4}:{dev.ProductID:X4}:{slot}", name ?? $"Logitech {slot}", kind, level, charging));
+                    var id = $"usb:{Vid:X4}:{longDev.ProductID:X4}:{slot}";
+                    if (Battery(s, slot) is var (level, charging))
+                    {
+                        var (name, kind) = Info(s, slot);
+                        result.Add(new(id, name ?? $"Logitech {slot}", kind, level, charging));
+                    }
+                    else if (sh is not null && slot != 0xFF && Battery10(sh, slot) is int level10)
+                    {
+                        var (name, kind) = Info10(s, sh, slot);
+                        result.Add(new(id, name ?? $"Logitech {slot}", kind, level10));
+                    }
                 }
             }
         }
         return result;
     }
 
+    // HID++ 1.0 (as read by Solaar): register 0x0D = charge in percent; register 0x07 = coarse level 7/5/3/1.
+    // shortcut: charging state of 1.0 devices is not decoded; add it if someone reports one with a diagnose.
+    static int? Battery10(HidStream sh, byte slot)
+    {
+        if (Register(sh, sh, slot, 0x81, 0x0D) is { } charge && charge[4] is > 0 and <= 100) return charge[4];
+        if (Register(sh, sh, slot, 0x81, 0x07) is { } status)
+            return status[4] switch { 7 => 90, 5 => 50, 3 => 20, 1 => 5, _ => null };
+        return null;
+    }
+
+    // Receiver long register 0xB5: pairing info (0x20 + slot - 1, byte 7 = kind) and name (0x40 + slot - 1, length + ASCII).
+    static (string?, DeviceKind) Info10(HidStream s, HidStream sh, byte slot)
+    {
+        var kind = Register(sh, s, 0xFF, 0x83, 0xB5, (byte)(0x20 + slot - 1)) is { } pair
+            ? (pair[11] & 0x0F) switch { 1 or 3 => DeviceKind.Keyboard, 2 or 8 or 9 => DeviceKind.Mouse, _ => DeviceKind.Other }
+            : DeviceKind.Other;
+        string? name = null;
+        if (Register(sh, s, 0xFF, 0x83, 0xB5, (byte)(0x40 + slot - 1)) is { } n && n[5] is > 0 and <= 14)
+            name = Encoding.ASCII.GetString(n, 6, n[5]);
+        return (name, kind);
+    }
+
+    // Register read: request on the short report; the reply comes on the short report (0x81) or the long one (0x83).
+    static byte[]? Register(HidStream sh, HidStream replyStream, byte slot, byte subId, byte register, byte param = 0)
+    {
+        try { sh.Write([0x10, slot, subId, register, param, 0, 0]); }
+        catch (IOException) { return null; }
+
+        var buf = new byte[replyStream == sh ? 7 : 20];
+        var deadline = Environment.TickCount64 + 500;
+        while (Environment.TickCount64 < deadline)
+        {
+            try { replyStream.Read(buf); }
+            catch (TimeoutException) { return null; }
+            if (buf[1] == slot && buf[2] == subId && buf[3] == register) return buf;
+            if (buf[1] == slot && buf[2] == 0x8F && buf[3] == subId) return null; // error reply
+        }
+        return null;
+    }
+
     static (int Level, bool Charging)? Battery(HidStream s, byte slot)
     {
-        var unified = Feature(s, slot, 0x1004);
+        // No answer at all = empty slot or a HID++ 1.0 device: stop before paying more timeouts.
+        if (Call(s, slot, 0x00, 0, 0x10, 0x04) is not { } root) return null;
+        var unified = root[0];
         if (unified != 0 && Call(s, slot, unified, 1) is { } u)
             // Percentage 0 means the device reports only coarse levels: bit 3 full, 2 good, 1 low, 0 critical.
             // Charging status: 1 charging, 2 slow charging, 3 complete (still plugged).

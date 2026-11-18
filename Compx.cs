@@ -17,26 +17,30 @@ static class Compx
     public static IEnumerable<Reading> Read()
     {
         var result = new List<Reading>();
-        foreach (var (group, cmd, reply) in Dongles())
+        var all = DeviceList.Local.GetHidDevices(Vid).ToList();
+        foreach (var (_, cmd, reply) in Dongles())
         {
             if (Query(cmd, reply, GetStatus) is not { } status || status[6] == 0) continue;
             if (Query(cmd, reply, GetBattery) is not { } battery) continue;
             var name = Name(cmd);
             // Keyed by model, not PID: the mouse has one PID on the dongle and another on the cable, and the icon must stay the same.
-            result.Add(new($"compx:{name}", name, DeviceKinds.FromHid(group), battery[6] * 10, battery[7] == 1));
+            // A second identical mouse gets "#2" (in a stable order), so it keeps its own icon.
+            var id = $"compx:{name}";
+            var same = result.Count(r => r.Id == id || r.Id.StartsWith(id + "#"));
+            var kind = DeviceKinds.FromHid(all.Where(d => d.ProductID == cmd.ProductID));
+            result.Add(new(same == 0 ? id : $"{id}#{same + 1}", name, kind, battery[6] * 10, battery[7] == 1));
         }
         return result;
     }
 
-    // Command and reply collections of each device that matches the protocol's report layout.
-    // shortcut: pairs collections by PID, so two identical dongles show as one; key by device instance if that happens.
-    internal static IEnumerable<(IGrouping<int, HidDevice> Group, HidDevice Cmd, HidDevice Reply)> Dongles()
+    // Command and reply collections of each device that matches the protocol's report layout, one entry per USB interface.
+    internal static IEnumerable<(string Interface, HidDevice Cmd, HidDevice Reply)> Dongles()
     {
-        foreach (var group in DeviceList.Local.GetHidDevices(Vid).GroupBy(d => d.ProductID))
+        foreach (var iface in DeviceList.Local.GetHidDevices(Vid).GroupBy(HidPaths.InterfaceKey).OrderBy(g => g.Key))
         {
-            var cmd = group.FirstOrDefault(d => d.GetMaxFeatureReportLength() == 17 && HasFeatureReport(d, 0x08));
-            var reply = group.FirstOrDefault(d => d.GetMaxInputReportLength() == 17);
-            if (cmd is not null && reply is not null) yield return (group, cmd, reply);
+            var cmd = iface.FirstOrDefault(d => d.GetMaxFeatureReportLength() == 17 && HasFeatureReport(d, 0x08));
+            var reply = iface.FirstOrDefault(d => d.GetMaxInputReportLength() == 17);
+            if (cmd is not null && reply is not null) yield return (iface.Key, cmd, reply);
         }
     }
 

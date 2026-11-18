@@ -6,6 +6,17 @@ namespace BatteryTray;
 
 enum DeviceKind { Mouse, Keyboard, Headset, Gamepad, Other }
 
+static class HidPaths
+{
+    // Collections of one USB interface share the device instance in their path, minus the collection's own index:
+    // ...&mi_01&col07#7&5808206&0&0006#{guid}  ->  "FA07|7&5808206&0". Two identical dongles get different keys.
+    public static string InterfaceKey(HidDevice d)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(d.DevicePath, @"#([^#]+)&[0-9a-f]+#\{", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return $"{d.ProductID:X4}|{(m.Success ? m.Groups[1].Value : d.DevicePath)}";
+    }
+}
+
 static class DeviceKinds
 {
     static readonly FontFamily Icons = new("Segoe MDL2 Assets"); // ships with Windows 10/11

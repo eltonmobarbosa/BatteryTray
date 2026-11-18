@@ -15,6 +15,8 @@ sealed class Flyout : Form
     readonly bool light = Theme.Light;
     readonly Color accent = Theme.Accent;
     readonly float k;
+    readonly int visibleRows;
+    int scroll; // pixels the device list is scrolled down
 
     Color Back => light ? Color.FromArgb(243, 243, 243) : Color.FromArgb(32, 32, 32);
     Color Border => light ? Color.FromArgb(208, 208, 208) : Color.FromArgb(58, 58, 58);
@@ -45,9 +47,11 @@ sealed class Flyout : Form
         DoubleBuffered = true;
         BackColor = Back;
 
-        var rows = Math.Max(1, devices.Count);
-        Size = new Size(S(Width96), S(Header96 + rows * Row96 + Footer96));
+        // As tall as the list, but never taller than the screen; the rest scrolls with the mouse wheel.
         var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+        var fit = Math.Max(1, (area.Height - S(24) - S(Header96 + Footer96)) / S(Row96));
+        visibleRows = Math.Clamp(devices.Count, 1, fit);
+        Size = new Size(S(Width96), S(Header96 + Footer96) + visibleRows * S(Row96));
         var x = Math.Clamp(Cursor.Position.X - Width / 2, area.Left + S(12), area.Right - Width - S(12));
         var y = Cursor.Position.Y >= area.Bottom ? area.Bottom - Height - S(12) : area.Top + S(12);
         Location = new Point(x, y);
@@ -85,9 +89,27 @@ sealed class Flyout : Form
         base.OnFormClosed(e);
     }
 
-    protected override void OnKeyDown(KeyEventArgs e)
+    // Here rather than OnKeyDown: dialog navigation would swallow the arrow keys first.
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (e.KeyCode == Keys.Escape) Close();
+        switch (keyData)
+        {
+            case Keys.Escape: Close(); return true;
+            case Keys.Down: ScrollBy(S(Row96)); return true;
+            case Keys.Up: ScrollBy(-S(Row96)); return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e) => ScrollBy(-e.Delta * S(Row96) / 120);
+
+    void ScrollBy(int pixels)
+    {
+        var max = Math.Max(0, (devices.Count - visibleRows) * S(Row96));
+        var next = Math.Clamp(scroll + pixels, 0, max);
+        if (next == scroll) return;
+        scroll = next;
+        Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -103,12 +125,15 @@ sealed class Flyout : Form
 
         TextRenderer.DrawText(g, "Bateria dos dispositivos", title, new Rectangle(pad, 0, Width - 2 * pad, S(Header96)), Text1, left);
 
-        int top = S(Header96);
+        var list = new Rectangle(0, S(Header96), Width, visibleRows * S(Row96));
         if (devices.Count == 0)
-            TextRenderer.DrawText(g, "Nenhum dispositivo com bateria encontrado", name, new Rectangle(pad, top, Width - 2 * pad, S(Row96)), Text2, left);
+            TextRenderer.DrawText(g, "Nenhum dispositivo com bateria encontrado", name, new Rectangle(pad, list.Top, Width - 2 * pad, S(Row96)), Text2, left);
 
+        g.SetClip(list);
+        int top = list.Top - scroll;
         foreach (var d in devices)
         {
+            if (top + S(Row96) <= list.Top || top >= list.Bottom) { top += S(Row96); continue; }
             int iconBox = S(28);
             DeviceKinds.DrawGlyph(g, d.Kind, new RectangleF(pad, top + (S(Row96) - iconBox) / 2f, iconBox, iconBox), Text1);
 
@@ -129,6 +154,17 @@ sealed class Flyout : Form
             top += S(Row96);
         }
 
+        if (devices.Count > visibleRows)
+        {
+            // Thin scroll indicator on the right edge.
+            var content = devices.Count * S(Row96);
+            var thumbH = Math.Max(S(24), list.Height * list.Height / content);
+            var thumbY = list.Top + (list.Height - thumbH) * scroll / (content - list.Height);
+            FillRounded(g, new RectangleF(Width - S(6), thumbY, S(3), thumbH), Text2);
+        }
+        g.ResetClip();
+        top = list.Bottom;
+
         using (var line = new Pen(Border)) g.DrawLine(line, 0, top + S(4), Width, top + S(4));
         TextRenderer.DrawText(g, $"Atualizado às {updated:HH:mm}", small, new Rectangle(pad, top + S(4), Width - 2 * pad, S(Footer96) - S(4)), Text2, left);
 
@@ -139,9 +175,18 @@ sealed class Flyout : Form
     static void FillRounded(Graphics g, RectangleF r, Color color)
     {
         using var path = new GraphicsPath();
-        var d = r.Height;
-        path.AddArc(r.X, r.Y, d, d, 90, 180);
-        path.AddArc(r.Right - d, r.Y, d, d, 270, 180);
+        // Pill shape along the long side: works for the horizontal bars and the vertical scroll thumb.
+        var d = Math.Min(r.Width, r.Height);
+        if (r.Width >= r.Height)
+        {
+            path.AddArc(r.X, r.Y, d, d, 90, 180);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 180);
+        }
+        else
+        {
+            path.AddArc(r.X, r.Y, d, d, 180, 180);
+            path.AddArc(r.X, r.Bottom - d, d, d, 0, 180);
+        }
         path.CloseFigure();
         using var brush = new SolidBrush(color);
         var smoothing = g.SmoothingMode;

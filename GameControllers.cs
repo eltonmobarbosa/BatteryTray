@@ -6,10 +6,18 @@ namespace BatteryTray;
 // Any brand: wireless controllers Windows itself reports battery for (Xbox and other Windows.Gaming.Input devices).
 static class GameControllers
 {
+    static bool primed;
+
     public static IEnumerable<Reading> Read()
     {
+        // Windows fills the list asynchronously after first use; give it a moment once instead of missing controllers on the first read.
+        if (!primed)
+        {
+            primed = true;
+            for (int i = 0; i < 10 && RawGameController.RawGameControllers.Count == 0; i++) Thread.Sleep(50);
+        }
+
         var result = new List<Reading>();
-        // shortcut: Windows fills this list asynchronously, so the very first call after start may be empty; the next refresh picks them up.
         foreach (var c in RawGameController.RawGameControllers)
         {
             var report = c.TryGetBatteryReport();

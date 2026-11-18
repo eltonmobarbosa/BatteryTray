@@ -1,0 +1,49 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write # only used by the release step, which runs on tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          dotnet publish -c Release -r win-x64 --self-contained `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
+            -p:Version=$version -o publish
+
+      # No devices on the runner: this runs every reader (they must not crash) and the protocol self-checks.
+      - name: Self-check
+        shell: pwsh
+        run: |
+          $p = Start-Process publish\BatteryTray.exe -ArgumentList '--list' -RedirectStandardOutput out.txt -RedirectStandardError err.txt -PassThru -NoNewWindow
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'BatteryTray --list did not finish in 120 s' }
+          Get-Content out.txt, err.txt
+          if (Select-String -Path out.txt -Pattern 'SELF-CHECK FAILED') { throw 'self-check failed' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BatteryTray
+          path: publish/BatteryTray.exe
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME publish/BatteryTray.exe --title $env:GITHUB_REF_NAME --generate-notes
