@@ -18,4 +18,26 @@
     <PackageReference Include="HidSharp" Version="2.1.0" />
   </ItemGroup>
 
+  <!-- HeadsetControl (GPL-3.0, https://github.com/Sapd/HeadsetControl) is shipped unmodified inside the exe and run as a separate process.
+       Pinned version and hash: a new release only goes in after someone bumps both. -->
+  <PropertyGroup>
+    <HeadsetControlVersion>4.2.0</HeadsetControlVersion>
+    <HeadsetControlSha256>81ACAE4C083AAA40A2E9C1BCE7B3DD9625E74B9D9EE96384BB43B2DFF7FF0FA5</HeadsetControlSha256>
+    <HeadsetControlFile>$(BaseIntermediateOutputPath)headsetcontrol-$(HeadsetControlVersion).exe</HeadsetControlFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(HeadsetControlFile)" LogicalName="headsetcontrol.exe" />
+  </ItemGroup>
+
+  <Target Name="FetchHeadsetControl" BeforeTargets="PrepareForBuild" Condition="!Exists('$(HeadsetControlFile)')">
+    <DownloadFile SourceUrl="https://github.com/Sapd/HeadsetControl/releases/download/$(HeadsetControlVersion)/headsetcontrol-windows-x86_64.exe"
+                  DestinationFolder="$(BaseIntermediateOutputPath)" DestinationFileName="headsetcontrol-$(HeadsetControlVersion).exe" />
+    <GetFileHash Files="$(HeadsetControlFile)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="HeadsetControlActualHash" />
+    </GetFileHash>
+    <Delete Files="$(HeadsetControlFile)" Condition="'$(HeadsetControlActualHash)' != '$(HeadsetControlSha256)'" />
+    <Error Text="headsetcontrol.exe hash mismatch: $(HeadsetControlActualHash)" Condition="'$(HeadsetControlActualHash)' != '$(HeadsetControlSha256)'" />
+  </Target>
+
 </Project>

@@ -39,11 +39,11 @@ There is no universal protocol for 2.4 GHz dongles — each chip speaks its own 
 | Logitech | HID++ 2.0 (Unifying, Lightspeed, Bolt, wired) and HID++ 1.0 (older Unifying) | No |
 | Razer | 90-byte protocol documented by OpenRazer | No |
 | Fantech | Kanata WG9RD, protocol documented in [peripheral-battery](https://github.com/MarcoVilera/peripheral-battery) | No |
-| HeadsetControl | SteelSeries, Corsair, HyperX, Logitech G and other headsets via [HeadsetControl](https://github.com/Sapd/HeadsetControl) (put `headsetcontrol.exe` next to the app or on PATH) | No |
+| HeadsetControl | SteelSeries, Corsair, HyperX, Logitech G and other headsets via [HeadsetControl](https://github.com/Sapd/HeadsetControl) (4.2.0 is bundled inside the exe; a `headsetcontrol.exe` next to the app or on PATH takes precedence) | No |
 
 ### Your device does not show up?
 
-Run `BatteryTray.exe --diagnose > diagnose.txt` with the device connected and open an issue with the file, the exact model and, if there is one, a link to the manufacturer's software.
+In the folder of the exe, run `.\BatteryTray.exe --diagnose > diagnose.txt` (PowerShell needs the `.\`) with the device connected and open an issue with the file, the exact model and, if there is one, a link to the manufacturer's software.
 
 ## How it was built
 
@@ -87,3 +87,5 @@ The exe is not code-signed yet, so Windows may show "Unknown publisher" on first
 ## License
 
 MIT
+
+Bundled [HeadsetControl](https://github.com/Sapd/HeadsetControl) 4.2.0 is GPL-3.0, shipped unmodified and run as a separate program; its source is at https://github.com/Sapd/HeadsetControl/tree/4.2.0.

@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace BatteryTray;
 
 // Headsets (SteelSeries, Corsair, HyperX, Logitech G, Roccat, ...) through the HeadsetControl CLI, if installed.
-// https://github.com/Sapd/HeadsetControl — put headsetcontrol.exe next to BatteryTray.exe or on PATH.
+// https://github.com/Sapd/HeadsetControl — embedded in the exe at build time; one next to BatteryTray.exe or on PATH wins.
 static class HeadsetControl
 {
     public static IEnumerable<Reading> Read()
@@ -47,6 +47,29 @@ static class HeadsetControl
         return (Environment.GetEnvironmentVariable("PATH") ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
             .Select(dir => Path.Combine(dir, "headsetcontrol.exe"))
-            .FirstOrDefault(File.Exists);
+            .FirstOrDefault(File.Exists) ?? Bundled();
+    }
+
+    // The copy embedded at build time, written once next to the log; a user-installed one above takes precedence.
+    static string? bundled;
+    static string? Bundled()
+    {
+        if (bundled is not null && File.Exists(bundled)) return bundled;
+        using var res = typeof(HeadsetControl).Assembly.GetManifestResourceStream("headsetcontrol.exe");
+        if (res is null) return null;
+        var path = Path.Combine(Log.Folder, "headsetcontrol.exe");
+        try
+        {
+            if (!File.Exists(path) || new FileInfo(path).Length != res.Length)
+            {
+                Directory.CreateDirectory(Log.Folder);
+                var tmp = path + ".tmp";
+                using (var f = File.Create(tmp)) res.CopyTo(f);
+                File.Move(tmp, path, overwrite: true);
+            }
+        }
+        catch (IOException) { return File.Exists(path) ? path : null; } // another instance (--list) writing it, or it is running
+        catch (UnauthorizedAccessException) { return null; }
+        return bundled = path;
     }
 }
