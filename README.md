@@ -2,7 +2,7 @@
 
 Mostra na área de notificação do Windows a bateria de mouses, teclados, headsets e controles sem fio — inclusive dos que o Windows não mostra sozinho (dongles 2.4G).
 
-Cada dispositivo ganha o próprio ícone: o desenho do tipo (mouse, teclado, headset, controle) com um selo mostrando a porcentagem — verde acima de 50%, amarelo até 50%, vermelho em 20% ou menos, azul com raio carregando e ✓ quando cheio.
+Cada dispositivo ganha o próprio ícone, em pixel art para ficar nítido nos 16 px da bandeja: o desenho do tipo (mouse, teclado, headset, controle) em cima e a porcentagem embaixo — verde acima de 50%, amarelo até 50%, vermelho em 20% ou menos, azul carregando e ✓ quando cheio.
 
 - **Clique esquerdo:** painel com todos os dispositivos, porcentagem e estado de carga (rola com a roda do mouse quando não cabem na tela).
 - **Clique direito:** Atualizar, Iniciar com o Windows, Abrir log, Sair.

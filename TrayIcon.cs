@@ -36,7 +36,12 @@ sealed class TrayIcon : IDisposable
         var old = hIcon;
         hIcon = newIcon;
         text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
-        if (!Send(NIM_MODIFY)) Send(NIM_ADD);
+        if (!Send(NIM_MODIFY) && !Send(NIM_ADD))
+        {
+            // A previous instance that was killed leaves its icon registered under the same GUID: remove it and retry.
+            Send(NIM_DELETE);
+            if (!Send(NIM_ADD)) Log.Write($"Falha ao mostrar o ícone na bandeja: {tooltip.Split('\n')[0]}");
+        }
         if (old != IntPtr.Zero) DestroyIcon(old);
     }
 

@@ -262,81 +262,64 @@ static class Program
         TrayIcon.PromoteOnWindows11();
     }
 
-    // 4x6 pixel digits, row by row. At tray size (16 px at 100%) vector text either blurs or needs a badge so big it hides
-    // the device; pixel digits stay sharp in a small badge, so the glyph can use nearly the whole square.
+    // Tray icons are 16 px at 100% scale, too small for a glyph and a number on top of each other, and vector glyphs and
+    // text blur at that size. So both are hand-drawn pixel art, stacked: device on the top 8 rows, percentage on the
+    // bottom 7, colored by level. Rows of '1' (pixel) and '.' (empty).
+    static string[] Sprite(DeviceKind kind) => kind switch
+    {
+        DeviceKind.Mouse => [".11111.", "1..1..1", "1..1..1", "1111111", "1.....1", "1.....1", "1.....1", ".11111."],
+        DeviceKind.Keyboard => ["1111111111111", "1.1.1.1.1.1.1", "1...........1", "1.1.1.1.1.1.1", "1...........1", "1..1111111..1", "1111111111111"],
+        DeviceKind.Headset => ["..111111..", ".1......1.", "1........1", "1........1", "11......11", "11......11", "11......11", "11......11"],
+        DeviceKind.Gamepad => [".11111111111.", "1...........1", "1.1......1..1", "111.....1.1.1", "1.1......1..1", "1...........1", ".111.....111."],
+        _ => ["11111111111.", "1.........1.", "1.........11", "1.........11", "1.........11", "1.........1.", "11111111111."], // battery
+    };
+
     static readonly string[] Digits =
     [
-        "011010011001100110010110", "001001100010001000100111", "011010010010010010001111", "111000010110000100011110",
-        "001001101010111100100010", "111110001110000100011110", "011010001110100110010110", "111100010010010001000100",
-        "011010010110100110010110", "011010011001011100010110",
+        "01110100011000110001100011000101110", "00100011000010000100001000010001110", "01110100010000100010001000100011111",
+        "11110000010000101110000010000111110", "00010001100101010010111110001000010", "11111100001111000001000011000101110",
+        "00110010001000011110100011000101110", "11111000010001000100010000100001000", "01110100011000101110100011000101110",
+        "01110100011000101111000010001001100",
     ];
 
-    // Windows' own tray pattern: glyph fills the square, a status badge overlaps the bottom-right corner with a
-    // transparent gap around it. The badge shows the percentage colored by level; charging shows a bolt, 100% a check
-    // (three digits do not fit at 16 px).
+    static readonly string[] CheckMark = ["......1", ".....11", "1...11.", "11.11..", ".111...", "..1...."];
+
+    // 5x7 digits side by side with a 1 px gap; three digits do not fit in 16 px, so 100% shows a check mark instead.
+    static string[] Number(int level)
+    {
+        if (level >= 100) return CheckMark;
+        var text = level.ToString();
+        return Enumerable.Range(0, 7)
+            .Select(row => string.Join('.', text.Select(c => Digits[c - '0'].Substring(row * 5, 5).Replace('0', '.'))))
+            .ToArray();
+    }
+
     static Bitmap DrawIcon(int size, DeviceKind kind, int level, bool charging, bool light)
     {
         var fg = Theme.Foreground(light);
         var bmp = new Bitmap(size, size);
         using var g = Graphics.FromImage(bmp);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        var u = Math.Max(1, size / 16); // pixel unit: 1 at 16-31 px, 2 at 32 px
+        var u = Math.Max(1, size / 16); // whole-pixel scale keeps the art sharp: 1 at 16-31 px, 2 at 32 px
+        var top = (size - 16 * u) / 2;
         if (level < 0)
         {
-            DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, 0, size - u, size - u), Color.FromArgb(120, fg));
+            Pixels(g, Sprite(kind), size / 2, top + 12 * u, u, Color.FromArgb(120, fg));
             return bmp;
         }
 
-        DeviceKinds.DrawGlyph(g, kind, new RectangleF(0, 0, size - u, size - u), fg);
-
-        var text = level.ToString();
-        var symbol = charging || level >= 100;
-        int bh = 8 * u, bw = symbol ? bh : (text.Length * 5 + 1) * u; // digits 4 wide + 1 gap, 1 px padding
-        var badge = new Rectangle(size - bw, size - bh, bw, bh);
-        using (var clear = new SolidBrush(Color.Transparent))
-        {
-            g.CompositingMode = CompositingMode.SourceCopy;
-            g.FillRectangle(clear, badge.X - u, badge.Y - u, badge.Width + u, badge.Height + u);
-            g.CompositingMode = CompositingMode.SourceOver;
-        }
-
-        var color = Theme.Level(level, charging, light);
-        var ink = Theme.InkOn(color);
-        g.SmoothingMode = SmoothingMode.None;
-        using (var fill = new SolidBrush(color))
-        {
-            // Rectangle with the four corner pixels cut off.
-            g.FillRectangle(fill, badge.X + u, badge.Y, badge.Width - 2 * u, badge.Height);
-            g.FillRectangle(fill, badge.X, badge.Y + u, badge.Width, badge.Height - 2 * u);
-        }
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-
-        if (charging)
-        {
-            var r = RectangleF.Inflate(badge, -bh * .18f, -bh * .12f);
-            PointF P(float x, float y) => new(r.X + r.Width * x, r.Y + r.Height * y);
-            using var bolt = new SolidBrush(ink);
-            g.FillPolygon(bolt, [P(.62f, 0), P(.12f, .56f), P(.46f, .56f), P(.34f, 1), P(.88f, .42f), P(.54f, .42f)]);
-        }
-        else if (level >= 100)
-        {
-            using var check = new Pen(ink, Math.Max(1.2f, bh / 6f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
-            g.DrawLines(check, new PointF[] { new(badge.X + bh * .26f, badge.Y + bh * .52f), new(badge.X + bh * .44f, badge.Y + bh * .70f), new(badge.X + bh * .76f, badge.Y + bh * .32f) });
-        }
-        else
-        {
-            g.SmoothingMode = SmoothingMode.None;
-            using var pixel = new SolidBrush(ink);
-            for (int i = 0; i < text.Length; i++)
-            {
-                var pattern = Digits[text[i] - '0'];
-                int x0 = badge.X + u + i * 5 * u, y0 = badge.Y + u;
-                for (int row = 0; row < 6; row++)
-                    for (int col = 0; col < 4; col++)
-                        if (pattern[row * 4 + col] == '1') g.FillRectangle(pixel, x0 + col * u, y0 + row * u, u, u);
-            }
-        }
+        Pixels(g, Sprite(kind), size / 2, top + 8 * u, u, fg);
+        Pixels(g, Number(level), size / 2, top + 16 * u, u, Theme.Level(level, charging, light));
         return bmp;
+    }
+
+    // Draws pixel rows centered on cx, with the last row ending at bottom.
+    static void Pixels(Graphics g, string[] rows, int cx, int bottom, int u, Color color)
+    {
+        int x0 = cx - rows[0].Length * u / 2, y0 = bottom - rows.Length * u;
+        using var brush = new SolidBrush(color);
+        for (int r = 0; r < rows.Length; r++)
+            for (int c = 0; c < rows[r].Length; c++)
+                if (rows[r][c] == '1') g.FillRectangle(brush, x0 + c * u, y0 + r * u, u, u);
     }
 
     // Renders every kind at common tray sizes on dark and light backgrounds, for checking the icon design.
