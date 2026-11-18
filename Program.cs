@@ -52,8 +52,8 @@ static class Program
                 StartConsole();
                 Task.Run(Diagnose).Wait();
                 return;
-            case ["--preview", var file]:
-                SavePreview(file);
+            case ["--preview", var dir]:
+                SavePreview(dir);
                 return;
         }
 
@@ -322,8 +322,67 @@ static class Program
                 if (rows[r][c] == '1') g.FillRectangle(brush, x0 + c * u, y0 + r * u, u, u);
     }
 
-    // Renders every kind at common tray sizes on dark and light backgrounds, for checking the icon design.
-    static void SavePreview(string file)
+    // Images for checking the design and for the README, generated from the real drawing code with sample devices.
+    static void SavePreview(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        Reading[] sample =
+        [
+            new("s1", "Redragon M711-PRO", DeviceKind.Mouse, 60),
+            new("s2", "Teclado sem fio", DeviceKind.Keyboard, 85),
+            new("s3", "Headset sem fio", DeviceKind.Headset, 12),
+            new("s4", "Controle sem fio", DeviceKind.Gamepad, 45, true),
+        ];
+        SaveIconSheet(Path.Combine(dir, "icons.png"));
+        SaveTray(Path.Combine(dir, "tray.png"), sample);
+        var at = DateTime.Today.AddHours(12);
+        foreach (var light in new[] { false, true })
+        {
+            using var panel = Flyout.Render(sample, at, light);
+            panel.Save(Path.Combine(dir, light ? "flyout-light.png" : "flyout-dark.png"), ImageFormat.Png);
+        }
+    }
+
+    // Taskbar corner at real size (16 px icons) next to the same icons enlarged, dark and light.
+    static void SaveTray(string file, Reading[] devices)
+    {
+        const int zoom = 5, gap = 10;
+        int stripW = devices.Length * 24 + 70, zoomW = devices.Length * (16 * zoom + gap);
+        using var sheet = new Bitmap(stripW + 40 + zoomW, 2 * (16 * zoom + 20));
+        using var g = Graphics.FromImage(sheet);
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+        int y = 0;
+        foreach (var light in new[] { false, true })
+        {
+            var bg = light ? Color.FromArgb(238, 238, 238) : Color.FromArgb(32, 32, 32);
+            using (var b = new SolidBrush(bg)) g.FillRectangle(b, 0, y, sheet.Width, 16 * zoom + 20);
+            int rowMid = y + (16 * zoom + 20) / 2;
+            int x = 12;
+            foreach (var d in devices)
+            {
+                using var icon = DrawIcon(16, d.Kind, d.Level, d.Charging, light);
+                g.DrawImageUnscaled(icon, x, rowMid - 8);
+                x += 24;
+            }
+            using (var clock = new Font("Segoe UI", 12f, GraphicsUnit.Pixel))
+            using (var ink = new SolidBrush(Theme.Foreground(light)))
+                g.DrawString("12:00", clock, ink, x + 8, rowMid - 8);
+            x = stripW + 40;
+            foreach (var d in devices)
+            {
+                using var icon = DrawIcon(16, d.Kind, d.Level, d.Charging, light);
+                g.DrawImage(icon, x, rowMid - 8 * zoom, 16 * zoom, 16 * zoom);
+                x += 16 * zoom + gap;
+            }
+            y += 16 * zoom + 20;
+        }
+        sheet.Save(file, ImageFormat.Png);
+    }
+
+    // Every kind at common tray sizes on dark and light backgrounds.
+    static void SaveIconSheet(string file)
     {
         const int cell = 72;
         var kinds = Enum.GetValues<DeviceKind>();
@@ -331,8 +390,8 @@ static class Program
         (int Level, bool Charging)[] states = [(100, false), (85, false), (30, false), (12, false), (60, true), (-1, false)];
         using var sheet = new Bitmap(kinds.Length * states.Length * cell, sizes.Length * 2 * cell);
         using var g = Graphics.FromImage(sheet);
-        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
-        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
         int col = 0;
         foreach (var kind in kinds)
             foreach (var (level, charging) in states)

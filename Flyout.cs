@@ -12,7 +12,7 @@ sealed class Flyout : Form
 
     readonly List<Reading> devices;
     readonly DateTime updated;
-    readonly bool light = Theme.Light;
+    readonly bool light;
     readonly float k;
     readonly int visibleRows;
     int scroll; // pixels the device list is scrolled down
@@ -29,15 +29,27 @@ sealed class Flyout : Form
     {
         if (open is not null) { open.Close(); return; }
         if (Environment.TickCount64 - closedAt < 300) return; // this click is the one that just closed it
-        open = new Flyout(devices.OrderBy(d => d.Kind).ThenBy(d => d.Name).ToList(), updated);
+        open = new Flyout(Sorted(devices), updated, Theme.Light);
         open.Show();
         open.Activate();
     }
 
-    Flyout(List<Reading> devices, DateTime updated)
+    // The panel as an image, without showing it (README screenshots via --preview).
+    public static Bitmap Render(IEnumerable<Reading> devices, DateTime updated, bool light)
+    {
+        using var f = new Flyout(Sorted(devices), updated, light);
+        var bmp = new Bitmap(f.Width, f.Height);
+        f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
+        return bmp;
+    }
+
+    static List<Reading> Sorted(IEnumerable<Reading> devices) => devices.OrderBy(d => d.Kind).ThenBy(d => d.Name).ToList();
+
+    Flyout(List<Reading> devices, DateTime updated, bool light)
     {
         this.devices = devices;
         this.updated = updated;
+        this.light = light;
         k = DeviceDpi / 96f;
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;

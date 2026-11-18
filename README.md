@@ -1,90 +1,89 @@
 # BatteryTray
 
-Mostra na área de notificação do Windows a bateria de mouses, teclados, headsets e controles sem fio — inclusive dos que o Windows não mostra sozinho (dongles 2.4G).
+**English** · [Português](README.pt-BR.md)
 
-Cada dispositivo ganha o próprio ícone, em pixel art para ficar nítido nos 16 px da bandeja: o desenho do tipo (mouse, teclado, headset, controle) em cima e a porcentagem embaixo — verde acima de 50%, amarelo até 50%, vermelho em 20% ou menos, azul carregando e ✓ quando cheio.
+Shows the battery of wireless mice, keyboards, headsets and controllers in the Windows notification area — including the ones Windows does not show on its own (2.4 GHz dongles).
 
-- **Clique esquerdo:** painel com todos os dispositivos, porcentagem e estado de carga (rola com a roda do mouse quando não cabem na tela).
-- **Clique direito:** Atualizar, Iniciar com o Windows, Abrir log, Sair.
-- **Aviso de bateria fraca:** notificação do Windows quando um dispositivo chega a 20%.
-- **Na hora:** conectar, desconectar ou parear um dispositivo atualiza em ~2 s; a bateria em si é relida a cada minuto.
-- Segue o tema claro/escuro da barra de tarefas e a cor de destaque.
+<p>
+  <img src="docs/tray.png" alt="Tray icons at real size and enlarged, dark and light taskbar">
+</p>
+<p>
+  <img src="docs/flyout-dark.png" alt="Device panel, dark theme" width="300">
+  <img src="docs/flyout-light.png" alt="Device panel, light theme" width="300">
+</p>
+
+Each device gets its own tray icon, drawn as pixel art so it stays sharp at 16 px: the device on top and the percentage below — green above 50%, amber up to 50%, red at 20% or less, blue while charging, ✓ when full.
+
+- **Left click:** panel with every device, its percentage and charging state (scrolls when they do not fit on screen).
+- **Right click:** Refresh, Start with Windows, Open log, Exit.
+- **Low battery warning:** a Windows notification when a device reaches 20%.
+- **Instant:** plugging, unplugging or pairing a device updates in ~2 s; battery levels are re-read every minute.
+- Follows the taskbar's light/dark theme. Uses about 13 MB of RAM.
 
 ## Download
 
-Baixe o `BatteryTray.zip` da [última versão](https://github.com/eltonmobarbosa/BatteryTray/releases/latest), extraia o `BatteryTray.exe` numa pasta fixa e abra. Não precisa instalar nada. Ao abrir, uma notificação confirma que está funcionando e mostra o que foi encontrado. Cada versão é compilada pelo GitHub Actions a partir do código deste repositório.
+Get `BatteryTray.zip` from the [latest release](https://github.com/eltonmobarbosa/BatteryTray/releases/latest), extract `BatteryTray.exe` to a permanent folder and open it. Nothing to install. A notification confirms it is running and lists what it found. Every release is built by GitHub Actions from this repository's source.
 
-Usa cerca de 13 MB de RAM.
+Windows 10 or 11. On Windows 10, drag the icon from the overflow (^) to the taskbar once; Windows remembers it. Windows 11 pins it automatically.
 
-## Como a bateria é lida
+## How the battery is read
 
-O app não depende de marca. Ele tenta, em ordem, várias formas de leitura; a mais específica vence quando duas leem o mesmo dispositivo.
+There is no universal protocol for 2.4 GHz dongles — each chip speaks its own — so the app tries several readers. None depends on a brand name; when two read the same device, the more specific one wins.
 
-| Leitor | Cobre | Testado com aparelho |
+| Reader | Covers | Tested on hardware |
 |---|---|---|
-| HID padrão | Qualquer marca que publique a bateria pelo padrão HID (Battery Strength / Absolute State Of Charge), em relatório de feature ou de entrada | Não |
-| Bluetooth | Qualquer dispositivo cuja bateria o Windows já lê (BLE Battery Service, headsets HFP); só os conectados | Não |
-| Controles | Controles sem fio via Windows.Gaming.Input (Xbox e compatíveis) | Não |
-| Compx | Chip Compx (VID 25A7), usado por Redragon e outras marcas, no dongle e no cabo | Sim (Redragon M711-PRO) |
-| Logitech | HID++ 2.0 (Unifying, Lightspeed, Bolt e com fio) e HID++ 1.0 (Unifying antigos) | Não |
-| Razer | Protocolo de 90 bytes documentado pelo OpenRazer | Não |
-| Fantech | Kanata WG9RD, protocolo documentado em [peripheral-battery](https://github.com/MarcoVilera/peripheral-battery) | Não |
-| HeadsetControl | Headsets SteelSeries, Corsair, HyperX, Logitech G e outros, via [HeadsetControl](https://github.com/Sapd/HeadsetControl) (coloque `headsetcontrol.exe` ao lado do app ou no PATH) | Não |
+| Standard HID | Any brand that reports battery the standard HID way (Battery Strength / Absolute State Of Charge), in feature or input reports | No |
+| Bluetooth | Any device whose battery Windows already reads (BLE Battery Service, HFP headsets); connected ones only | No |
+| Controllers | Wireless controllers via Windows.Gaming.Input (Xbox and compatible) | No |
+| Compx | Compx chip (VID 25A7), used by Redragon and other brands, over the dongle and the cable | Yes (Redragon M711-PRO) |
+| Logitech | HID++ 2.0 (Unifying, Lightspeed, Bolt, wired) and HID++ 1.0 (older Unifying) | No |
+| Razer | 90-byte protocol documented by OpenRazer | No |
+| Fantech | Kanata WG9RD, protocol documented in [peripheral-battery](https://github.com/MarcoVilera/peripheral-battery) | No |
+| HeadsetControl | SteelSeries, Corsair, HyperX, Logitech G and other headsets via [HeadsetControl](https://github.com/Sapd/HeadsetControl) (put `headsetcontrol.exe` next to the app or on PATH) | No |
 
-Não existe um protocolo universal para dongles 2.4G: cada chip fala de um jeito, então um dispositivo que não seguir nenhum dos acima não aparece. Veja abaixo como pedir suporte.
+### Your device does not show up?
 
-## Uso
+Run `BatteryTray.exe --diagnose > diagnose.txt` with the device connected and open an issue with the file, the exact model and, if there is one, a link to the manufacturer's software.
 
-Requer Windows 10 ou 11.
+## How it was built
+
+**Reverse engineering the Redragon dongle.** The Redragon software ships no protocol documentation, and its debug log is compiled out. So I hooked its HID calls at runtime with [Frida](https://frida.re/) (`HidD_SetFeature`, `DeviceIoControl`, `ReadFile`) while it displayed the battery. Commands turned out to be 17-byte feature reports `0x08` whose bytes sum to `0x55`, answered on input report `0x09`; command `0x04` returns the battery in 10% steps. Checking against the official app at 20% and 30% confirmed the scale, and asking the user to switch the mouse off and plug the cable exposed two traps: the dongle keeps answering with the *last* battery of a mouse that is already off (command `0x03` tells whether it is linked), and on the cable the same mouse shows up with a different USB product id — so the icon is keyed by model, not by id.
+
+**From 68 MB to 13 MB of RAM.** GC settings changed nothing, so I measured publish variants instead: the compressed single-file exe unpacks every assembly into private memory. Shipping it uncompressed inside a zip brought RAM to ~13 MB *and* made the download smaller (50 MB vs 55 MB).
+
+**A readable icon in 16 px.** Tray icons are 16×16 at 100% scale. A number badge over a device glyph was unreadable, and vector glyphs blur at 8 px, so both the devices and the 5×7 digits are hand-drawn pixel art, stacked without overlap and scaled by whole pixels on high-DPI screens.
+
+**Tray icons that Windows remembers.** WinForms' `NotifyIcon` gets a new id every run, so Windows forgot which icons the user had pinned. The app wraps `Shell_NotifyIcon` itself with a GUID derived from the exe path and the device, and re-registers icons whose GUID is still held by a previous instance that was killed.
+
+**A WinRT deadlock.** `--list` hung forever inside the Bluetooth reader. A thread dump (`dotnet-stack`) showed the WinRT call waiting on the main thread; the cause was a WinForms control created in a static initializer, which made WinRT marshal its completion back to that blocked STA thread.
+
+## Development
 
 ```powershell
-dotnet run                    # app na bandeja
-dotnet run -- --list          # leituras no terminal
-dotnet run -- --diagnose      # relatório para pedir suporte a um dispositivo
-dotnet run -- --preview a.png # folha com todos os ícones, para conferir o design
+dotnet run                    # tray app
+dotnet run -- --list          # readings in the terminal
+dotnet run -- --diagnose      # report for adding support for a device
+dotnet run -- --preview docs  # regenerates the images above from the real drawing code
 ```
 
-### Gerar o executável
+Build the release exe (no .NET install needed to run it):
 
 ```powershell
 dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
-Gera `publish\BatteryTray.exe` (~135 MB; ~50 MB em zip), que roda sem precisar instalar o .NET. Não use `EnableCompressionInSingleFile`: o exe fica menor, mas descompacta tudo na RAM e o app passa de ~13 MB para ~60 MB. Coloque-o numa pasta fixa antes de marcar "Iniciar com o Windows": o atalho de inicialização aponta para esse caminho.
+Do not add `EnableCompressionInSingleFile`: the exe gets smaller but unpacks into RAM (~60 MB instead of ~13 MB).
 
-### Manter o ícone visível
-
-- **Windows 11:** os ícones são fixados na barra automaticamente na primeira vez.
-- **Windows 10:** arraste o ícone da setinha (^) para a barra uma vez; o Windows lembra.
-
-Se o `.exe` mudar de pasta, o Windows trata os ícones como novos e é preciso arrastar de novo.
+Publishing a version: `git tag v1.2.3 && git push origin v1.2.3`. The workflow in `.github/workflows/build.yml` builds, runs the self-checks and creates the release with the zip.
 
 ### Log
 
-Erros, dispositivos que entram/saem e avisos de bateria ficam em `%LOCALAPPDATA%\BatteryTray\BatteryTray.log` (no máximo ~512 KB; o anterior vira `.log.old`). Clique direito → **Abrir log**.
+Errors, devices coming and going and battery warnings go to `%LOCALAPPDATA%\BatteryTray\BatteryTray.log` (max ~512 KB, the previous one becomes `.log.old`). Right click → **Open log**.
 
-### Microsoft Defender e SmartScreen
+### Microsoft Defender and SmartScreen
 
-O executável ainda não tem assinatura digital, então o Windows pode mostrar "Editor desconhecido" ao abrir, e "Iniciar com o Windows" (que grava em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) às vezes dispara um falso positivo heurístico do Defender. O código completo está neste repositório e cada `.exe` dos Releases é compilado a partir dele pelo GitHub Actions.
+The exe is not code-signed yet, so Windows may show "Unknown publisher" on first run (More info → Run anyway), and "Start with Windows" (which writes to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) can trigger a heuristic false positive. Open source projects can request a free certificate from the [SignPath Foundation](https://signpath.org/).
 
-A solução definitiva é assinar o executável; projetos open source podem pedir certificado gratuito à [SignPath Foundation](https://signpath.org/).
-
-### Publicar uma versão
-
-```powershell
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-O workflow `.github/workflows/build.yml` compila, roda os self-checks e cria o Release com o `.exe`.
-
-## Pedir suporte a um dispositivo
-
-1. Conecte o dispositivo e rode `BatteryTray.exe --diagnose > diagnose.txt`.
-2. Abra uma issue com o arquivo, o modelo exato e, se houver, o link do software oficial do fabricante.
-
-O protocolo costuma ser descoberto observando o software oficial: muitos são apps Electron com o JavaScript legível, e nos outros dá para registrar as chamadas HID que eles fazem (foi assim que o leitor Compx foi feito).
-
-## Licença
+## License
 
 MIT
